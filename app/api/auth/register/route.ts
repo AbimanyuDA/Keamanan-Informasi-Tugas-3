@@ -9,6 +9,7 @@ const registerSchema = z.object({
   name: z.string().min(2),
   role: z.enum(["organization", "consultant"]),
   organizationName: z.string().optional(),
+  position: z.string().optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -24,7 +25,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { email, password, name, role, organizationName } = validation.data;
+    const { email, password, name, role, organizationName, position } =
+      validation.data;
 
     // Check if user already exists
     const existingUser = await userDb.findByEmail(email);
@@ -50,6 +52,7 @@ export async function POST(request: NextRequest) {
       name,
       role,
       organizationName,
+      position,
     });
 
     // Generate token

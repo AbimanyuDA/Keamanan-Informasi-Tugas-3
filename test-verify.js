@@ -1,0 +1,121 @@
+const fs = require("fs");
+const path = require("path");
+
+// Create a simple test PDF with barcode signature
+function createTestSignedPDF() {
+  const pdfContent = Buffer.from(`%PDF-1.4
+1 0 obj
+<<
+/Type /Catalog
+/Pages 2 0 R
+>>
+endobj
+2 0 obj
+<<
+/Type /Pages
+/Kids [3 0 R]
+/Count 1
+>>
+endobj
+3 0 obj
+<<
+/Type /Page
+/Parent 2 0 R
+/Resources <<
+/Font <<
+/F1 4 0 R
+>>
+>>
+/MediaBox [0 0 612 792]
+/Contents 5 0 R
+>>
+endobj
+4 0 obj
+<<
+/Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica
+>>
+endobj
+5 0 obj
+<<
+/Length 44
+>>
+stream
+BT
+/F1 12 Tf
+100 700 Td
+(Test Signed Document) Tj
+ET
+endstream
+endobj
+6 0 obj
+<<
+/Type /Annot
+/Subtype /Widget
+/Rect [100 100 200 150]
+/FT /Sig
+/F 4
+/T (Signature1)
+/V 7 0 R
+>>
+endobj
+7 0 obj
+<<
+/Type /Sig
+/Filter /Adobe.PPKLite
+/SubFilter /adbe.pkcs7.detached
+/Contents <3082035C06092A864886F70D010702A082034D30820349020101310D300B06096086480165030402010500300B06092A864886F70D010701A082032E0482032A895370DF...>
+/ByteRange [0 1234 5678 999]
+/M (D:20231201120000+07'00')
+>>
+endobj
+xref
+0 8
+0000000000 65535 f
+0000000009 00000 n
+0000000058 00000 n
+0000000115 00000 n
+0000000214 00000 n
+0000000301 00000 n
+0000000400 00000 n
+0000000500 00000 n
+trailer
+<<
+/Size 8
+/Root 1 0 R
+>>
+startxref
+600
+%%EOF
+|John Doe|Manager|Company Inc|2024-01-01T12:00:00.000Z|base64signaturedata|
+`);
+
+  const outputPath = path.join(__dirname, "test-signed.pdf");
+  fs.writeFileSync(outputPath, pdfContent);
+  console.log("Created test signed PDF:", outputPath);
+  return pdfContent;
+}
+
+// Test the verification
+async function testVerification() {
+  const pdfBuffer = createTestSignedPDF();
+
+  // Import the verification functions
+  const {
+    checkPdfSignatureStructure,
+    extractSignatureInfo,
+  } = require("./lib/pdf-verify-signature.ts");
+
+  console.log("Testing signature detection...");
+  const result = checkPdfSignatureStructure(pdfBuffer);
+  console.log("Detection result:", result);
+
+  if (result.valid) {
+    console.log("Extracting signature info...");
+    const sigInfo = extractSignatureInfo(pdfBuffer);
+    console.log("Signature info:", sigInfo);
+  }
+}
+
+testVerification().catch(console.error);

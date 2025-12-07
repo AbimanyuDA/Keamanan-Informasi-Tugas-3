@@ -7,6 +7,7 @@ export interface User {
   name: string;
   role: UserRole;
   organizationName?: string;
+  position?: string;
   createdAt: Date;
   hasKeys: boolean;
 }
@@ -31,6 +32,7 @@ export interface RegisterRequest {
   name: string;
   role: UserRole;
   organizationName?: string;
+  position?: string;
 }
 
 export interface AuthResponse {

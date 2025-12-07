@@ -1,8 +1,10 @@
+export const runtime = "nodejs";
 import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/auth";
-import { userKeysDb } from "@/lib/db";
+import { userKeysDb, userDb } from "@/lib/db";
 import { decryptPrivateKey } from "@/lib/crypto";
 import { signPDF } from "@/lib/pdf-signer";
+import { signPdfWithNodeSignpdf, lockPdfEditing } from "@/lib/pdf-signpdf";
 import { z } from "zod";
 
 const signPDFSchema = z.object({
@@ -29,6 +31,9 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData();
     const pdfFile = formData.get("pdf") as File;
     const password = formData.get("password") as string;
+    // For node-signpdf: accept PKCS#12 (PFX) and passphrase
+    const p12File = formData.get("p12") as File | null;
+    const p12Passphrase = formData.get("p12Passphrase") as string | undefined;
 
     if (!pdfFile || !password) {
       return NextResponse.json(
@@ -66,20 +71,54 @@ export async function POST(request: NextRequest) {
     // Read PDF file
     const pdfBuffer = Buffer.from(await pdfFile.arrayBuffer());
 
-    // Sign PDF
-    const signedPdfBuffer = await signPDF(
-      pdfBuffer,
-      privateKey,
-      keys.certificate
-    );
+    // Validate PDF magic number (first 4 bytes: %PDF)
+    if (pdfBuffer.length < 4 || pdfBuffer.toString("utf8", 0, 4) !== "%PDF") {
+      return NextResponse.json(
+        { error: "Uploaded file is not a valid PDF document." },
+        { status: 400 }
+      );
+    }
 
-    // Return signed PDF
-    return new NextResponse(signedPdfBuffer, {
-      headers: {
-        "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="signed_${pdfFile.name}"`,
-      },
-    });
+    // If P12 and passphrase provided, use node-signpdf for true digital signature
+    if (p12File && p12Passphrase) {
+      const p12Buffer = Buffer.from(await p12File.arrayBuffer());
+      let signedPdf = await signPdfWithNodeSignpdf(
+        pdfBuffer,
+        p12Buffer,
+        p12Passphrase
+      );
+      signedPdf = await lockPdfEditing(signedPdf);
+      const signedPdfUint8 = new Uint8Array(signedPdf);
+      return new NextResponse(signedPdfUint8, {
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `attachment; filename=\"signed_${pdfFile.name}\"`,
+        },
+      });
+    } else {
+      // Fallback: legacy sign (metadata only)
+      const user = await userDb.findById(tokenPayload.userId);
+      const signerInfo = user
+        ? {
+            name: user.name || "-",
+            position: user.position || "-",
+            organizationName: user.organizationName || "-",
+          }
+        : undefined;
+      const signedPdfBuffer = await signPDF(
+        pdfBuffer,
+        privateKey,
+        keys.certificate,
+        signerInfo
+      );
+      const signedPdfUint8 = new Uint8Array(signedPdfBuffer);
+      return new NextResponse(signedPdfUint8, {
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `attachment; filename=\"signed_${pdfFile.name}\"`,
+        },
+      });
+    }
   } catch (error) {
     console.error("Sign PDF error:", error);
     return NextResponse.json(

@@ -118,9 +118,41 @@ export default function DashboardPage() {
 
       <main className="flex-1 lg:ml-64 p-8">
         <div className="max-w-6xl mx-auto space-y-8">
-          {/* Header */}
-          <div>
-            <h1 className="text-3xl font-bold mb-2">Welcome, {user.name}</h1>
+          {/* Header + Profile Button */}
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h1 className="text-3xl font-bold mb-1">{user.name}</h1>
+              {user.organizationName && (
+                <div className="text-base text-muted-foreground">
+                  {user.organizationName}
+                </div>
+              )}
+              {user.position && (
+                <div className="text-sm text-muted-foreground">
+                  {user.position}
+                </div>
+              )}
+            </div>
+            <button
+              className="inline-flex items-center px-3 py-1 rounded bg-primary text-primary-foreground text-xs hover:bg-primary/90 transition"
+              onClick={() => router.push("/dashboard/profile")}
+              title="Edit Profile"
+            >
+              <svg
+                width="16"
+                height="16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                viewBox="0 0 24 24"
+              >
+                <path d="M12 20h9" />
+                <path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+              </svg>
+              <span className="ml-1">Edit Profile</span>
+            </button>
+          </div>
+          <div className="mb-2">
             <p className="text-muted-foreground">
               {user.role === "organization"
                 ? "Manage your PDF documents with digital signatures"

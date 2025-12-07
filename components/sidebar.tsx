@@ -14,6 +14,7 @@ import {
   X,
   Moon,
   Sun,
+  User as UserIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -30,22 +31,21 @@ export function Sidebar({ userRole, userName, onLogout }: SidebarProps) {
   const pathname = usePathname();
   const { theme, setTheme } = useTheme();
 
-  const organizationLinks = [
-    { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-    { href: "/pdf/generate", label: "Generate PDF", icon: FileText },
-    { href: "/pdf/sign", label: "Sign PDF", icon: FileSignature },
-    { href: "/pdf/verify", label: "Verify PDF", icon: ShieldCheck },
-    { href: "/settings/keys", label: "Manage Keys", icon: Key },
-  ];
-
-  const consultantLinks = [
-    { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-    { href: "/pdf/verify", label: "Verify PDF", icon: ShieldCheck },
-    { href: "/settings/keys", label: "View Keys", icon: Key },
-  ];
-
-  const links =
-    userRole === "organization" ? organizationLinks : consultantLinks;
+  const baseLinks =
+    userRole === "organization"
+      ? [
+          { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+          { href: "/pdf/generate", label: "Generate PDF", icon: FileText },
+          { href: "/pdf/sign", label: "Sign PDF", icon: FileSignature },
+          { href: "/pdf/verify", label: "Verify PDF", icon: ShieldCheck },
+          { href: "/settings/keys", label: "Manage Keys", icon: Key },
+        ]
+      : [
+          { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+          { href: "/pdf/verify", label: "Verify PDF", icon: ShieldCheck },
+          { href: "/settings/keys", label: "View Keys", icon: Key },
+        ];
+  const links = baseLinks;
 
   return (
     <>

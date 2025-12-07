@@ -52,50 +52,67 @@ export async function generatePDF(
     const lineHeight = contentSize * 1.5;
     const maxWidth = width - 100;
 
-    // Split content into lines that fit the page width
-    const words = options.content.split(" ");
-    const lines: string[] = [];
-    let currentLine = "";
-
-    for (const word of words) {
-      const testLine = currentLine ? `${currentLine} ${word}` : word;
-      const testWidth = font.widthOfTextAtSize(testLine, contentSize);
-
-      if (testWidth > maxWidth && currentLine) {
-        lines.push(currentLine);
-        currentLine = word;
-      } else {
-        currentLine = testLine;
-      }
-    }
-    if (currentLine) {
-      lines.push(currentLine);
-    }
-
-    // Draw lines
+    // Split content into paragraphs by newline
+    const paragraphs = options.content.split("\n");
     let yPosition = height - 100;
-    for (const line of lines) {
-      if (yPosition < 50) {
-        // Add new page if needed
-        const newPage = pdfDoc.addPage([595, 842]);
-        yPosition = newPage.getSize().height - 50;
-        newPage.drawText(line, {
-          x: 50,
-          y: yPosition,
-          size: contentSize,
-          font: font,
-          color: rgb(0, 0, 0),
-        });
-      } else {
-        page.drawText(line, {
-          x: 50,
-          y: yPosition,
-          size: contentSize,
-          font: font,
-          color: rgb(0, 0, 0),
-        });
+    for (const para of paragraphs) {
+      // Split paragraph into lines that fit the page width
+      const words = para.split(" ");
+      let currentLine = "";
+      for (const word of words) {
+        const testLine = currentLine ? `${currentLine} ${word}` : word;
+        const testWidth = font.widthOfTextAtSize(testLine, contentSize);
+        if (testWidth > maxWidth && currentLine) {
+          // Draw currentLine
+          if (yPosition < 50) {
+            const newPage = pdfDoc.addPage([595, 842]);
+            yPosition = newPage.getSize().height - 50;
+            newPage.drawText(currentLine, {
+              x: 50,
+              y: yPosition,
+              size: contentSize,
+              font: font,
+              color: rgb(0, 0, 0),
+            });
+          } else {
+            page.drawText(currentLine, {
+              x: 50,
+              y: yPosition,
+              size: contentSize,
+              font: font,
+              color: rgb(0, 0, 0),
+            });
+          }
+          yPosition -= lineHeight;
+          currentLine = word;
+        } else {
+          currentLine = testLine;
+        }
       }
-      yPosition -= lineHeight;
+      if (currentLine) {
+        if (yPosition < 50) {
+          const newPage = pdfDoc.addPage([595, 842]);
+          yPosition = newPage.getSize().height - 50;
+          newPage.drawText(currentLine, {
+            x: 50,
+            y: yPosition,
+            size: contentSize,
+            font: font,
+            color: rgb(0, 0, 0),
+          });
+        } else {
+          page.drawText(currentLine, {
+            x: 50,
+            y: yPosition,
+            size: contentSize,
+            font: font,
+            color: rgb(0, 0, 0),
+          });
+        }
+        yPosition -= lineHeight;
+      }
+      // Extra space after paragraph
+      yPosition -= lineHeight / 2;
     }
 
     // Add metadata

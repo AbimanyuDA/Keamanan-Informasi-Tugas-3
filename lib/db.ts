@@ -1,119 +1,93 @@
-import { User, UserKeys } from "@/types";
+// (fungsi updateProfile dipindahkan ke dalam objek userDb di bawah)
 import bcrypt from "bcryptjs";
-
-// In-memory database (for demo purposes)
-// In production, use a real database like PostgreSQL, MongoDB, etc.
-
-interface Database {
-  users: Map<string, User & { passwordHash: string }>;
-  userKeys: Map<string, UserKeys>;
-  pdfs: Map<string, any>;
-}
-
-const db: Database = {
-  users: new Map(),
-  userKeys: new Map(),
-  pdfs: new Map(),
-};
-
-// Initialize with sample data
-async function initializeDatabase() {
-  // Create sample organization account
-  const orgPasswordHash = await bcrypt.hash("password123", 10);
-  const orgUser: User & { passwordHash: string } = {
-    id: "user-1",
-    email: "org@example.com",
-    name: "PT Example Organization",
-    role: "organization",
-    organizationName: "PT Example Organization",
-    createdAt: new Date(),
-    hasKeys: false,
-    passwordHash: orgPasswordHash,
-  };
-  db.users.set(orgUser.id, orgUser);
-
-  // Create sample consultant account
-  const consultantPasswordHash = await bcrypt.hash("password123", 10);
-  const consultantUser: User & { passwordHash: string } = {
-    id: "user-2",
-    email: "consultant@example.com",
-    name: "John Consultant",
-    role: "consultant",
-    createdAt: new Date(),
-    hasKeys: false,
-    passwordHash: consultantPasswordHash,
-  };
-  db.users.set(consultantUser.id, consultantUser);
-}
-
-// Initialize on module load
-initializeDatabase();
+import { dbConnect } from "@/lib/mongodb";
+import UserModel, { IUser } from "@/models/User";
+import UserKeysModel, { IUserKeys } from "@/models/UserKeys";
+import PDFModel, { IPDF } from "@/models/PDF";
 
 // User operations
 export const userDb = {
+  async updateProfile(
+    userId: string,
+    data: { name?: string; organizationName?: string; position?: string }
+  ): Promise<(IUser & { id: string }) | null> {
+    await dbConnect();
+    const userDoc = await UserModel.findByIdAndUpdate(
+      userId,
+      {
+        ...(data.name !== undefined ? { name: data.name } : {}),
+        ...(data.organizationName !== undefined
+          ? { organizationName: data.organizationName }
+          : {}),
+        ...(data.position !== undefined ? { position: data.position } : {}),
+      },
+      { new: true }
+    );
+    if (!userDoc) return null;
+    // @ts-ignore
+    const { passwordHash: _, ...user } = userDoc.toObject();
+    return { ...user, id: userDoc._id.toString() };
+  },
   async create(userData: {
     email: string;
     password: string;
     name: string;
     role: "organization" | "consultant";
     organizationName?: string;
-  }): Promise<User> {
-    const id = `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    position?: string;
+  }): Promise<Omit<IUser, "passwordHash"> & { id: string }> {
+    await dbConnect();
     const passwordHash = await bcrypt.hash(userData.password, 10);
-
-    const user: User & { passwordHash: string } = {
-      id,
+    const userDoc = await UserModel.create({
       email: userData.email,
+      passwordHash,
       name: userData.name,
       role: userData.role,
       organizationName: userData.organizationName,
+      position: userData.position,
       createdAt: new Date(),
       hasKeys: false,
-      passwordHash,
-    };
-
-    db.users.set(id, user);
-
-    const { passwordHash: _, ...userWithoutPassword } = user;
-    return userWithoutPassword;
+    });
+    // @ts-ignore
+    const { passwordHash: _, ...user } = userDoc.toObject();
+    return { ...user, id: userDoc._id.toString() };
   },
 
-  async findByEmail(
-    email: string
-  ): Promise<(User & { passwordHash: string }) | null> {
-    for (const user of db.users.values()) {
-      if (user.email === email) {
-        return user;
-      }
-    }
-    return null;
+  async findByEmail(email: string): Promise<(IUser & { id: string }) | null> {
+    await dbConnect();
+    const userDoc = await UserModel.findOne({ email });
+    if (!userDoc) return null;
+    // @ts-ignore
+    const { passwordHash: _, ...user } = userDoc.toObject();
+    return { ...user, id: userDoc._id.toString() };
   },
 
-  async findById(id: string): Promise<User | null> {
-    const user = db.users.get(id);
-    if (!user) return null;
-
-    const { passwordHash: _, ...userWithoutPassword } = user;
-    return userWithoutPassword;
+  async findById(id: string): Promise<(IUser & { id: string }) | null> {
+    await dbConnect();
+    const userDoc = await UserModel.findById(id);
+    if (!userDoc) return null;
+    // @ts-ignore
+    const { passwordHash: _, ...user } = userDoc.toObject();
+    return { ...user, id: userDoc._id.toString() };
   },
 
   async updateHasKeys(userId: string, hasKeys: boolean): Promise<void> {
-    const user = db.users.get(userId);
-    if (user) {
-      user.hasKeys = hasKeys;
-      db.users.set(userId, user);
-    }
+    await dbConnect();
+    await UserModel.findByIdAndUpdate(userId, { hasKeys });
   },
 
-  async verifyPassword(email: string, password: string): Promise<User | null> {
-    const user = await this.findByEmail(email);
-    if (!user) return null;
-
-    const isValid = await bcrypt.compare(password, user.passwordHash);
+  async verifyPassword(
+    email: string,
+    password: string
+  ): Promise<(IUser & { id: string }) | null> {
+    await dbConnect();
+    const userDoc = await UserModel.findOne({ email });
+    if (!userDoc) return null;
+    const isValid = await bcrypt.compare(password, userDoc.passwordHash);
     if (!isValid) return null;
-
-    const { passwordHash: _, ...userWithoutPassword } = user;
-    return userWithoutPassword;
+    // @ts-ignore
+    const { passwordHash: _, ...user } = userDoc.toObject();
+    return { ...user, id: userDoc._id.toString() };
   },
 };
 
@@ -124,31 +98,30 @@ export const userKeysDb = {
     publicKey: string;
     privateKeyEncrypted: string;
     certificate: string;
-  }): Promise<UserKeys> {
-    const keys: UserKeys = {
+  }): Promise<IUserKeys> {
+    await dbConnect();
+    const keys = await UserKeysModel.create({
       ...keysData,
       createdAt: new Date(),
-    };
-
-    db.userKeys.set(keysData.userId, keys);
+    });
     await userDb.updateHasKeys(keysData.userId, true);
-
-    return keys;
+    return keys.toObject();
   },
 
-  async findByUserId(userId: string): Promise<UserKeys | null> {
-    return db.userKeys.get(userId) || null;
+  async findByUserId(userId: string): Promise<IUserKeys | null> {
+    await dbConnect();
+    const keys = await UserKeysModel.findOne({ userId });
+    return keys ? keys.toObject() : null;
   },
 
-  async update(userId: string, keysData: Partial<UserKeys>): Promise<void> {
-    const existing = db.userKeys.get(userId);
-    if (existing) {
-      db.userKeys.set(userId, { ...existing, ...keysData });
-    }
+  async update(userId: string, keysData: Partial<IUserKeys>): Promise<void> {
+    await dbConnect();
+    await UserKeysModel.findOneAndUpdate({ userId }, keysData);
   },
 
   async delete(userId: string): Promise<void> {
-    db.userKeys.delete(userId);
+    await dbConnect();
+    await UserKeysModel.deleteOne({ userId });
     await userDb.updateHasKeys(userId, false);
   },
 };
@@ -162,39 +135,32 @@ export const pdfDb = {
     signed: boolean;
     signedBy?: string;
     signedAt?: Date;
-  }): Promise<any> {
-    const id = `pdf-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    const pdf = {
-      id,
+  }): Promise<IPDF> {
+    await dbConnect();
+    const pdf = await PDFModel.create({
       ...pdfData,
       createdAt: new Date(),
-    };
-
-    db.pdfs.set(id, pdf);
-    return pdf;
+    });
+    return pdf.toObject();
   },
 
-  async findById(id: string): Promise<any | null> {
-    return db.pdfs.get(id) || null;
+  async findById(id: string): Promise<IPDF | null> {
+    await dbConnect();
+    const pdf = await PDFModel.findById(id);
+    return pdf ? pdf.toObject() : null;
   },
 
-  async findByUserId(userId: string): Promise<any[]> {
-    const pdfs: any[] = [];
-    for (const pdf of db.pdfs.values()) {
-      if (pdf.userId === userId) {
-        pdfs.push(pdf);
-      }
-    }
-    return pdfs;
+  async findByUserId(userId: string): Promise<IPDF[]> {
+    await dbConnect();
+    const pdfs = await PDFModel.find({ userId });
+    return pdfs.map((pdf) => pdf.toObject());
   },
 
-  async update(id: string, data: Partial<any>): Promise<void> {
-    const existing = db.pdfs.get(id);
-    if (existing) {
-      db.pdfs.set(id, { ...existing, ...data });
-    }
+  async update(id: string, data: Partial<IPDF>): Promise<void> {
+    await dbConnect();
+    await PDFModel.findByIdAndUpdate(id, data);
   },
 };
 
-// Export database for testing/debugging
-export const getDatabase = () => db;
+// Export for testing/debugging (optional, now returns nothing)
+export const getDatabase = () => ({});
