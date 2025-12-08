@@ -12,7 +12,6 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
 
-    // Validate input
     const validation = loginSchema.safeParse(body);
     if (!validation.success) {
       return NextResponse.json(
@@ -23,7 +22,6 @@ export async function POST(request: NextRequest) {
 
     const { email, password } = validation.data;
 
-    // Verify credentials
     const user = await userDb.verifyPassword(email, password);
     if (!user) {
       return NextResponse.json(
@@ -32,7 +30,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Generate token
     const token = generateToken(user);
 
     return NextResponse.json({

@@ -1,11 +1,9 @@
-// (fungsi updateProfile dipindahkan ke dalam objek userDb di bawah)
 import bcrypt from "bcryptjs";
 import { dbConnect } from "@/lib/mongodb";
 import UserModel, { IUser } from "@/models/User";
 import UserKeysModel, { IUserKeys } from "@/models/UserKeys";
 import PDFModel, { IPDF } from "@/models/PDF";
 
-// User operations
 export const userDb = {
   async updateProfile(
     userId: string,
@@ -24,7 +22,6 @@ export const userDb = {
       { new: true }
     );
     if (!userDoc) return null;
-    // @ts-ignore
     const { passwordHash: _, ...user } = userDoc.toObject();
     return { ...user, id: userDoc._id.toString() };
   },
@@ -48,7 +45,6 @@ export const userDb = {
       createdAt: new Date(),
       hasKeys: false,
     });
-    // @ts-ignore
     const { passwordHash: _, ...user } = userDoc.toObject();
     return { ...user, id: userDoc._id.toString() };
   },
@@ -57,7 +53,6 @@ export const userDb = {
     await dbConnect();
     const userDoc = await UserModel.findOne({ email });
     if (!userDoc) return null;
-    // @ts-ignore
     const { passwordHash: _, ...user } = userDoc.toObject();
     return { ...user, id: userDoc._id.toString() };
   },
@@ -66,7 +61,6 @@ export const userDb = {
     await dbConnect();
     const userDoc = await UserModel.findById(id);
     if (!userDoc) return null;
-    // @ts-ignore
     const { passwordHash: _, ...user } = userDoc.toObject();
     return { ...user, id: userDoc._id.toString() };
   },
@@ -85,13 +79,11 @@ export const userDb = {
     if (!userDoc) return null;
     const isValid = await bcrypt.compare(password, userDoc.passwordHash);
     if (!isValid) return null;
-    // @ts-ignore
     const { passwordHash: _, ...user } = userDoc.toObject();
     return { ...user, id: userDoc._id.toString() };
   },
 };
 
-// User keys operations
 export const userKeysDb = {
   async create(keysData: {
     userId: string;
@@ -126,7 +118,6 @@ export const userKeysDb = {
   },
 };
 
-// PDF operations
 export const pdfDb = {
   async create(pdfData: {
     name: string;
@@ -162,5 +153,4 @@ export const pdfDb = {
   },
 };
 
-// Export for testing/debugging (optional, now returns nothing)
 export const getDatabase = () => ({});

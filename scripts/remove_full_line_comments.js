@@ -1,0 +1,56 @@
+const fs = require("fs");
+const path = require("path");
+
+const root = process.cwd();
+const exts = [".ts", ".tsx", ".js", ".jsx"];
+const backupDir = path.join(root, ".comment_backups");
+
+function walk(dir) {
+  const results = [];
+  const list = fs.readdirSync(dir);
+  list.forEach(function (file) {
+    const filePath = path.join(dir, file);
+    const stat = fs.statSync(filePath);
+    if (stat && stat.isDirectory()) {
+      if (
+        file === "node_modules" ||
+        file === ".git" ||
+        file === ".comment_backups"
+      )
+        return;
+      results.push(...walk(filePath));
+    } else {
+      if (exts.includes(path.extname(file))) results.push(filePath);
+    }
+  });
+  return results;
+}
+
+function ensureDir(d) {
+  if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+}
+
+ensureDir(backupDir);
+const files = walk(root);
+const changed = [];
+
+files.forEach((f) => {
+  const rel = path.relative(root, f);
+  const content = fs.readFileSync(f, "utf8");
+  const lines = content.split(/\r?\n/);
+  const newLines = lines.filter((line) => !/^\s*\/\//.test(line));
+  const newContent = newLines.join("\n");
+  if (newContent !== content) {
+    const backupPath = path.join(backupDir, rel + ".bak");
+    ensureDir(path.dirname(backupPath));
+    fs.writeFileSync(backupPath, content, "utf8");
+    fs.writeFileSync(f, newContent, "utf8");
+    changed.push(rel);
+  }
+});
+
+console.log("Files changed:", changed.length);
+changed.slice(0, 100).forEach((x) => console.log(" -", x));
+if (changed.length === 0)
+  console.log("No full-line // comments found to remove.");
+console.log("Backups stored in", backupDir);

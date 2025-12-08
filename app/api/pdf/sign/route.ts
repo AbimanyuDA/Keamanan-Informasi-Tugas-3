@@ -1,10 +1,10 @@
 export const runtime = "nodejs";
 import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/auth";
-import { userKeysDb, userDb } from "@/lib/db";
+import { userKeysDb } from "@/lib/db";
 import { decryptPrivateKey } from "@/lib/crypto";
-import { signPDF } from "@/lib/pdf-signer";
-import { signPdfWithNodeSignpdf, lockPdfEditing } from "@/lib/pdf-signpdf";
+import { signPdfWithNodeSignpdf, signPdfWithFallback } from "@/lib/pdf-signpdf";
+import forge from "node-forge";
 import { z } from "zod";
 
 const signPDFSchema = z.object({
@@ -13,13 +13,11 @@ const signPDFSchema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
-    // Get user from token
     const tokenPayload = await getUserFromRequest(request);
     if (!tokenPayload) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Check if user is organization
     if (tokenPayload.role !== "organization") {
       return NextResponse.json(
         { error: "Only organizations can sign PDF documents" },
@@ -27,11 +25,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Parse form data
     const formData = await request.formData();
     const pdfFile = formData.get("pdf") as File;
     const password = formData.get("password") as string;
-    // For node-signpdf: accept PKCS#12 (PFX) and passphrase
     const p12File = formData.get("p12") as File | null;
     const p12Passphrase = formData.get("p12Passphrase") as string | undefined;
 
@@ -42,7 +38,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate password
     const validation = signPDFSchema.safeParse({ password });
     if (!validation.success) {
       return NextResponse.json(
@@ -51,7 +46,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get user keys
     const keys = await userKeysDb.findByUserId(tokenPayload.userId);
     if (!keys) {
       return NextResponse.json(
@@ -60,34 +54,147 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Decrypt private key
     let privateKey: string;
     try {
       privateKey = decryptPrivateKey(keys.privateKeyEncrypted, password);
     } catch (error) {
-      return NextResponse.json({ error: "Invalid password" }, { status: 401 });
+      console.error("Decrypt private key failed:", error);
+      return NextResponse.json(
+        { error: "Invalid password", details: (error as Error).message },
+        { status: 401 }
+      );
     }
 
-    // Read PDF file
     const pdfBuffer = Buffer.from(await pdfFile.arrayBuffer());
 
-    // Validate PDF magic number (first 4 bytes: %PDF)
-    if (pdfBuffer.length < 4 || pdfBuffer.toString("utf8", 0, 4) !== "%PDF") {
+    // Log input summary
+    console.log("Sign PDF input summary:", {
+      pdfSize: pdfBuffer.length,
+      pdfHeader: pdfBuffer.toString("utf8", 0, 8),
+      privateKeyStart: privateKey.slice(0, 32),
+      certificateStart: keys.certificate.slice(0, 32),
+    });
+
+    // Validate PDF header
+    if (
+      pdfBuffer.length < 4 ||
+      !pdfBuffer.toString("utf8", 0, 4).includes("%PDF")
+    ) {
       return NextResponse.json(
-        { error: "Uploaded file is not a valid PDF document." },
+        {
+          error: "Uploaded file is not a valid PDF document.",
+          details: pdfBuffer.toString("utf8", 0, 8),
+        },
         { status: 400 }
       );
     }
 
-    // If P12 and passphrase provided, use node-signpdf for true digital signature
+    // If P12 file provided, use it directly
     if (p12File && p12Passphrase) {
-      const p12Buffer = Buffer.from(await p12File.arrayBuffer());
-      let signedPdf = await signPdfWithNodeSignpdf(
-        pdfBuffer,
-        p12Buffer,
-        p12Passphrase
-      );
-      signedPdf = await lockPdfEditing(signedPdf);
+      console.log("Signing with provided P12 file...");
+      try {
+        const p12Buffer = Buffer.from(await p12File.arrayBuffer());
+        const signedPdf = await signPdfWithNodeSignpdf(
+          pdfBuffer,
+          p12Buffer,
+          p12Passphrase
+        );
+        const signedPdfUint8 = new Uint8Array(signedPdf);
+        return new NextResponse(signedPdfUint8, {
+          headers: {
+            "Content-Type": "application/pdf",
+            "Content-Disposition": `attachment; filename=\"signed_${pdfFile.name}\"`,
+          },
+        });
+      } catch (err) {
+        console.error("Error signing with P12 file:", err);
+        return NextResponse.json(
+          {
+            error: "Digital signature failed with P12 file",
+            details: (err as Error).message,
+          },
+          { status: 500 }
+        );
+      }
+    }
+
+    // Otherwise, convert stored keys to P12 and sign
+    console.log("Signing with stored keys converted to P12...");
+    try {
+      // Validate PEM format
+      if (
+        !privateKey.includes("BEGIN PRIVATE KEY") &&
+        !privateKey.includes("BEGIN RSA PRIVATE KEY")
+      ) {
+        throw new Error(
+          "Private key PEM format invalid. Value: " + privateKey.slice(0, 64)
+        );
+      }
+      if (!keys.certificate.includes("BEGIN CERTIFICATE")) {
+        throw new Error(
+          "Certificate PEM format invalid. Value: " +
+            keys.certificate.slice(0, 64)
+        );
+      }
+
+      // Parse PEM into forge objects
+      let privateKeyObj, certificateObj;
+      try {
+        privateKeyObj = forge.pki.privateKeyFromPem(privateKey);
+      } catch (e) {
+        throw new Error(
+          "Failed to parse private key PEM: " +
+            (e as Error).message +
+            " Value: " +
+            privateKey.slice(0, 64)
+        );
+      }
+
+      try {
+        certificateObj = forge.pki.certificateFromPem(keys.certificate);
+      } catch (e) {
+        throw new Error(
+          "Failed to parse certificate PEM: " +
+            (e as Error).message +
+            " Value: " +
+            keys.certificate.slice(0, 64)
+        );
+      }
+
+      // Convert to PKCS#12
+      let p12Buffer;
+      try {
+        const p12Asn1 = forge.pkcs12.toPkcs12Asn1(
+          privateKeyObj,
+          [certificateObj],
+          ""
+        );
+        const p12Der = forge.asn1.toDer(p12Asn1).getBytes();
+        p12Buffer = Buffer.from(p12Der, "binary");
+        console.log("Converted keys to PKCS#12, size:", p12Buffer.length);
+      } catch (e) {
+        throw new Error(
+          "Failed to convert to PKCS#12: " + (e as Error).message
+        );
+      }
+
+      // Sign PDF with PKCS#12
+      let signedPdf;
+      try {
+        signedPdf = await signPdfWithNodeSignpdf(pdfBuffer, p12Buffer, "");
+        console.log("PDF signed successfully with node-signpdf, size:", signedPdf.length);
+      } catch (e) {
+        console.warn("node-signpdf failed, trying fallback method...");
+        try {
+          signedPdf = await signPdfWithFallback(pdfBuffer, p12Buffer, "");
+          console.log("PDF signed with fallback method, size:", signedPdf.length);
+        } catch (fallbackErr) {
+          throw new Error(
+            `Failed to sign PDF: ${(e as Error).message}`
+          );
+        }
+      }
+
       const signedPdfUint8 = new Uint8Array(signedPdf);
       return new NextResponse(signedPdfUint8, {
         headers: {
@@ -95,29 +202,27 @@ export async function POST(request: NextRequest) {
           "Content-Disposition": `attachment; filename=\"signed_${pdfFile.name}\"`,
         },
       });
-    } else {
-      // Fallback: legacy sign (metadata only)
-      const user = await userDb.findById(tokenPayload.userId);
-      const signerInfo = user
-        ? {
-            name: user.name || "-",
-            position: user.position || "-",
-            organizationName: user.organizationName || "-",
-          }
-        : undefined;
-      const signedPdfBuffer = await signPDF(
-        pdfBuffer,
-        privateKey,
-        keys.certificate,
-        signerInfo
-      );
-      const signedPdfUint8 = new Uint8Array(signedPdfBuffer);
-      return new NextResponse(signedPdfUint8, {
-        headers: {
-          "Content-Type": "application/pdf",
-          "Content-Disposition": `attachment; filename=\"signed_${pdfFile.name}\"`,
-        },
-      });
+    } catch (err) {
+      // Log full error including stack if available
+      if (err instanceof Error) {
+        console.error("Sign PDF error detail:", err.stack || err.message);
+        return NextResponse.json(
+          {
+            error: "Digital signature failed. PDF not signed.",
+            details: err.stack || err.message,
+          },
+          { status: 500 }
+        );
+      } else {
+        console.error("Sign PDF error detail:", err);
+        return NextResponse.json(
+          {
+            error: "Digital signature failed. PDF not signed.",
+            details: JSON.stringify(err),
+          },
+          { status: 500 }
+        );
+      }
     }
   } catch (error) {
     console.error("Sign PDF error:", error);

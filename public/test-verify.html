@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Test Verify PDF API</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; }
+    .container { border: 1px solid #ccc; padding: 20px; border-radius: 8px; }
+    input, button { padding: 10px; margin: 10px 0; }
+    button { background-color: #007bff; color: white; border: none; cursor: pointer; border-radius: 4px; }
+    button:hover { background-color: #0056b3; }
+    .result { margin-top: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 4px; background-color: #f9f9f9; white-space: pre-wrap; font-family: monospace; }
+    .loading { color: #666; }
+    .error { color: #d32f2f; }
+    .success { color: #388e3c; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Test Verify PDF API</h1>
+    
+    <div>
+      <label for="pdfFile">Select PDF:</label><br>
+      <input type="file" id="pdfFile" accept=".pdf">
+    </div>
+    
+    <div>
+      <label for="token">Token:</label><br>
+      <input type="text" id="token" placeholder="Paste JWT token here" style="width: 100%; min-height: 60px;">
+    </div>
+    
+    <button onclick="testVerify()">Test Verify API</button>
+    
+    <div id="result" class="result" style="display: none;"></div>
+  </div>
+
+  <script>
+    async function testVerify() {
+      const fileInput = document.getElementById('pdfFile');
+      const tokenInput = document.getElementById('token');
+      const resultDiv = document.getElementById('result');
+      
+      if (!fileInput.files.length) {
+        resultDiv.style.display = 'block';
+        resultDiv.className = 'result error';
+        resultDiv.textContent = 'Please select a PDF file';
+        return;
+      }
+      
+      if (!tokenInput.value.trim()) {
+        resultDiv.style.display = 'block';
+        resultDiv.className = 'result error';
+        resultDiv.textContent = 'Please provide a token';
+        return;
+      }
+
+      resultDiv.style.display = 'block';
+      resultDiv.className = 'result loading';
+      resultDiv.textContent = 'Verifying PDF...';
+
+      try {
+        const formData = new FormData();
+        formData.append('pdf', fileInput.files[0]);
+
+        const response = await fetch('/api/pdf/verify', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${tokenInput.value.trim()}`
+          },
+          body: formData
+        });
+
+        const data = await response.json();
+
+        resultDiv.className = 'result success';
+        resultDiv.textContent = JSON.stringify(data, null, 2);
+
+        if (!response.ok) {
+          resultDiv.className = 'result error';
+        }
+      } catch (error) {
+        resultDiv.className = 'result error';
+        resultDiv.textContent = 'Error: ' + error.message;
+      }
+    }
+  </script>
+</body>
+</html>

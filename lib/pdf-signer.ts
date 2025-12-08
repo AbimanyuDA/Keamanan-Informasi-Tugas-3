@@ -9,7 +9,6 @@ import { PDFDocument } from "pdf-lib";
 import { generateBarcodePNG, embedBarcodeToPDF } from "@/lib/barcode-util";
 import { SignatureInfo } from "@/types";
 
-
 /**
  * Sign PDF document with private key and certificate
  * Uses PKCS#7 detached signature
@@ -21,27 +20,20 @@ export async function signPDF(
   signerInfo?: SignerInfo
 ): Promise<Buffer> {
   try {
-    // Load PDF
     const pdfDoc = await PDFDocument.load(pdfBuffer);
 
-    // Convert PDF to bytes for signing
     const pdfBytes = await pdfDoc.save();
 
-    // Create signature
     const privateKey = forge.pki.privateKeyFromPem(privateKeyPem);
     const certificate = forge.pki.certificateFromPem(certificatePem);
 
-    // Konversi pdfBytes ke string biner agar tidak error URI malformed
     const pdfBinaryString = forge.util.binary.raw.encode(pdfBytes);
 
-    // Hash the PDF content
     const md = forge.md.sha256.create();
     md.update(pdfBinaryString, "raw");
 
-    // Sign the hash
     const signature = privateKey.sign(md);
 
-    // Create PKCS#7 signature
     const p7 = forge.pkcs7.createSignedData();
     p7.content = forge.util.createBuffer(pdfBinaryString);
     p7.addCertificate(certificate);
@@ -64,23 +56,19 @@ export async function signPDF(
       ],
     });
 
-    // Sign
     p7.sign({ detached: true });
 
-    // Convert signature to DER format
     const derSignature = forge.asn1.toDer(p7.toAsn1()).getBytes();
 
-    // Generate barcode data (horizontal, format: nama|posisi|org|tanggal|signature)
     const barcodeData = [
       signerInfo?.name || "-",
       signerInfo?.position || "-",
       signerInfo?.organizationName || "-",
       new Date().toISOString(),
-      Buffer.from(derSignature, 'binary').toString('base64'),
+      Buffer.from(derSignature, "binary").toString("base64"),
     ].join("|");
     const barcodePng = await generateBarcodePNG(barcodeData);
 
-    // Embed signature and barcode in PDF
     const signedPdfDoc = await embedSignatureInPDF(
       pdfDoc,
       derSignature,
@@ -89,7 +77,6 @@ export async function signPDF(
       signerInfo
     );
 
-    // Return signed PDF as buffer
     const signedPdfBytes = await signedPdfDoc.save();
     return Buffer.from(signedPdfBytes);
   } catch (error) {
@@ -108,24 +95,27 @@ async function embedSignatureInPDF(
   barcodePng?: Buffer,
   signerInfo?: SignerInfo
 ) {
-
-  // Tentukan nama penandatangan
   let signerName = signerInfo?.name;
   if (!signerName) {
-    const certInfo = certificate.subject.attributes.find((attr: any) => attr.name === "commonName");
+    const certInfo = certificate.subject.attributes.find(
+      (attr: any) => attr.name === "commonName"
+    );
     if (certInfo) {
-      signerName = typeof certInfo.value === "string" ? certInfo.value : Array.isArray(certInfo.value) ? certInfo.value.join(", ") : "Unknown";
+      signerName =
+        typeof certInfo.value === "string"
+          ? certInfo.value
+          : Array.isArray(certInfo.value)
+          ? certInfo.value.join(", ")
+          : "Unknown";
     } else {
       signerName = "Unknown";
     }
   }
 
-  // Add signature annotation (visual representation)
   const pages = pdfDoc.getPages();
   const firstPage = pages[0];
   const { width, height } = firstPage.getSize();
 
-  // Add text annotation: nama, jabatan, PT
   let yText = 80;
   firstPage.drawText(`Digitally Signed by: ${signerName}`, {
     x: 50,
@@ -140,7 +130,9 @@ async function embedSignatureInPDF(
     size: 10,
   });
   yText -= 13;
-  const orgText = signerInfo?.organizationName ? signerInfo.organizationName : "-";
+  const orgText = signerInfo?.organizationName
+    ? signerInfo.organizationName
+    : "-";
   firstPage.drawText(`Company: ${orgText}`, {
     x: 50,
     y: yText,
@@ -153,19 +145,19 @@ async function embedSignatureInPDF(
     size: 10,
   });
   yText -= 35; // space for barcode (tinggi 30 + margin 5)
-  // Add barcode if available, right below the text
   if (barcodePng) {
     await embedBarcodeToPDF(pdfDoc, barcodePng, 50, yText, 200, 30);
   }
 
-  // Store signature in PDF metadata
   pdfDoc.setTitle("Signed Document");
   pdfDoc.setSubject("This document has been digitally signed");
-  pdfDoc.setKeywords(["signed", "digital-signature", typeof signerName === "string" ? signerName : "Unknown"]);
+  pdfDoc.setKeywords([
+    "signed",
+    "digital-signature",
+    typeof signerName === "string" ? signerName : "Unknown",
+  ]);
   pdfDoc.setCreator("PDF Signature System");
 
-  // Note: For production, you would need to implement proper PDF signature dictionary
-  // This is a simplified version that embeds signature information
 
   return pdfDoc;
 }
@@ -177,22 +169,20 @@ export async function verifyPDFSignature(
   pdfBuffer: Buffer
 ): Promise<SignatureInfo | null> {
   try {
-    // Load PDF
     const pdfDoc = await PDFDocument.load(pdfBuffer);
 
-    // Check if PDF has signature indicators in metadata
     const title = pdfDoc.getTitle();
     const subject = pdfDoc.getSubject();
     const keywordsRaw = pdfDoc.getKeywords();
     let keywordsArr: string[] = [];
     if (Array.isArray(keywordsRaw)) {
-      keywordsArr = keywordsRaw.filter((k): k is string => typeof k === "string");
+      keywordsArr = keywordsRaw.filter(
+        (k): k is string => typeof k === "string"
+      );
     } else if (typeof keywordsRaw === "string") {
       keywordsArr = [keywordsRaw];
     }
 
-    // This is a simplified verification
-    // In production, you would extract and verify the actual PKCS#7 signature
     if (!title || !subject || keywordsArr.length === 0) {
       return null;
     }
@@ -204,19 +194,19 @@ export async function verifyPDFSignature(
       return null;
     }
 
-    // Extract signer information from keywords
     const signerName =
-      keywordsArr.find((k: string) => !["signed", "digital-signature"].includes(k)) ||
-      "Unknown";
+      keywordsArr.find(
+        (k: string) => !["signed", "digital-signature"].includes(k)
+      ) || "Unknown";
 
-    // For this demo, we consider the signature valid if metadata indicates signing
     return {
       valid: true,
-      signedBy: typeof signerName === "string"
-        ? signerName
-        : Array.isArray(signerName)
-        ? (signerName as string[]).join(", ")
-        : "Unknown",
+      signedBy:
+        typeof signerName === "string"
+          ? signerName
+          : Array.isArray(signerName)
+          ? (signerName as string[]).join(", ")
+          : "Unknown",
       signedAt: new Date(), // In production, extract from signature
       certificate: "Certificate embedded in signature",
       issuer: "Self-Signed",
@@ -250,11 +240,12 @@ export async function extractSignatureInfo(
 
     return {
       valid: true,
-      signedBy: typeof signerName === "string"
-        ? signerName
-        : Array.isArray(signerName)
-        ? (signerName as string[]).join(", ")
-        : "Unknown",
+      signedBy:
+        typeof signerName === "string"
+          ? signerName
+          : Array.isArray(signerName)
+          ? (signerName as string[]).join(", ")
+          : "Unknown",
       signedAt: new Date(),
       certificate: certificatePem,
       issuer: certificate.issuer.attributes

@@ -18,18 +18,14 @@ export async function generatePDF(
   options: PDFGenerateOptions
 ): Promise<Buffer> {
   try {
-    // Create a new PDF document
     const pdfDoc = await PDFDocument.create();
 
-    // Embed font
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
-    // Add a page
     const page = pdfDoc.addPage([595, 842]); // A4 size
     const { width, height } = page.getSize();
 
-    // Draw title
     const titleSize = 24;
     page.drawText(options.title, {
       x: 50,
@@ -39,7 +35,6 @@ export async function generatePDF(
       color: rgb(0, 0, 0),
     });
 
-    // Draw a line under title
     page.drawLine({
       start: { x: 50, y: height - 60 },
       end: { x: width - 50, y: height - 60 },
@@ -47,23 +42,19 @@ export async function generatePDF(
       color: rgb(0, 0, 0),
     });
 
-    // Draw content
     const contentSize = 12;
     const lineHeight = contentSize * 1.5;
     const maxWidth = width - 100;
 
-    // Split content into paragraphs by newline
     const paragraphs = options.content.split("\n");
     let yPosition = height - 100;
     for (const para of paragraphs) {
-      // Split paragraph into lines that fit the page width
       const words = para.split(" ");
       let currentLine = "";
       for (const word of words) {
         const testLine = currentLine ? `${currentLine} ${word}` : word;
         const testWidth = font.widthOfTextAtSize(testLine, contentSize);
         if (testWidth > maxWidth && currentLine) {
-          // Draw currentLine
           if (yPosition < 50) {
             const newPage = pdfDoc.addPage([595, 842]);
             yPosition = newPage.getSize().height - 50;
@@ -111,11 +102,9 @@ export async function generatePDF(
         }
         yPosition -= lineHeight;
       }
-      // Extra space after paragraph
       yPosition -= lineHeight / 2;
     }
 
-    // Add metadata
     pdfDoc.setTitle(options.title);
     pdfDoc.setAuthor(options.metadata?.author || "PDF Signature System");
     pdfDoc.setSubject(options.metadata?.subject || "Generated Report");
@@ -125,7 +114,6 @@ export async function generatePDF(
     pdfDoc.setCreationDate(new Date());
     pdfDoc.setModificationDate(new Date());
 
-    // Generate PDF bytes
     const pdfBytes = await pdfDoc.save();
 
     return Buffer.from(pdfBytes);

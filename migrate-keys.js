@@ -1,6 +1,5 @@
 const mongoose = require("mongoose");
 
-// Define schemas inline for migration
 const UserSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   passwordHash: { type: String, required: true },
@@ -28,7 +27,6 @@ async function migrateHasKeys() {
   try {
     await mongoose.connect("mongodb://localhost:27017/pdf-signature-system");
 
-    // Find all users who have keys but hasKeys is false
     const usersWithKeys = await UserKeysModel.find({});
     const userIds = usersWithKeys.map((k) => k.userId);
 

@@ -1,0 +1,126 @@
+const fs = require("fs");
+const path = require("path");
+const forge = require("node-forge");
+const { sign } = require("node-signpdf");
+
+async function genKeyCert() {
+  return new Promise((resolve, reject) => {
+    const pki = forge.pki;
+    pki.rsa.generateKeyPair({ bits: 2048, workers: 2 }, (err, keys) => {
+      if (err) return reject(err);
+      const cert = pki.createCertificate();
+      cert.publicKey = keys.publicKey;
+      cert.serialNumber = "01";
+      cert.validity.notBefore = new Date();
+      cert.validity.notAfter = new Date();
+      cert.validity.notAfter.setFullYear(
+        cert.validity.notBefore.getFullYear() + 1
+      );
+      const attrs = [
+        { name: "commonName", value: "Test User" },
+        { name: "countryName", value: "ID" },
+        { shortName: "ST", value: "Jakarta" },
+        { name: "localityName", value: "Jakarta" },
+        { name: "organizationName", value: "Test Org" },
+        { shortName: "OU", value: "Test" },
+      ];
+      cert.setSubject(attrs);
+      cert.setIssuer(attrs);
+      cert.setExtensions([
+        { name: "basicConstraints", cA: true },
+        {
+          name: "keyUsage",
+          keyCertSign: true,
+          digitalSignature: true,
+          nonRepudiation: true,
+          keyEncipherment: true,
+        },
+      ]);
+      cert.sign(keys.privateKey, forge.md.sha256.create());
+
+      const privateKeyPem = pki.privateKeyToPem(keys.privateKey);
+      const certPem = pki.certificateToPem(cert);
+      resolve({ privateKeyPem, certPem, privateKey: keys.privateKey, cert });
+    });
+  });
+}
+
+function pemToP12(privateKey, cert, password = "") {
+  const p12Asn1 = forge.pkcs12.toPkcs12Asn1(privateKey, [cert], password);
+  const p12Der = forge.asn1.toDer(p12Asn1).getBytes();
+  return Buffer.from(p12Der, "binary");
+}
+
+function plainAddPlaceholder({ pdfBuffer, signatureLength = 8192 }) {
+  const placeholder = Buffer.from(
+    "\n/Type /Sig\n/Filter /Adobe.PPKLite\n/SubFilter /adbe.pkcs7.detached\n/Contents <" +
+      "0".repeat(signatureLength) +
+      ">\n/ByteRange [0 ********** ********** **********]\n"
+  );
+  throw new Error("We will use node-signpdf directly in this script");
+}
+
+(async () => {
+  try {
+    const src = path.resolve("./signed_New_PDF (7).pdf");
+    const dst = path.resolve("./signed_New_PDF_test_signed.pdf");
+    if (!fs.existsSync(src)) throw new Error("Source PDF not found: " + src);
+
+    const { privateKey, cert } = await genKeyCert();
+    const p12Buffer = pemToP12(privateKey, cert, "");
+
+    const unsignedPdf = fs.readFileSync(src);
+
+    const { PDFDocument } = require("pdf-lib");
+    const pdfDoc = await PDFDocument.load(unsignedPdf);
+    const newDoc = await PDFDocument.create();
+    const pages = await newDoc.copyPages(pdfDoc, pdfDoc.getPageIndices());
+    pages.forEach((p) => newDoc.addPage(p));
+    const normalized = Buffer.from(await newDoc.save());
+    fs.writeFileSync(path.resolve("./_normalized.pdf"), normalized);
+    console.log("Wrote _normalized.pdf, size", normalized.length);
+    console.log(
+      "First 1KB of normalized (ascii):\n",
+      normalized
+        .slice(0, 1024)
+        .toString("latin1")
+        .replace(/[^\x09\x0A\x0D\x20-\x7E]/g, ".")
+    );
+
+    const { execSync } = require("child_process");
+    const qpdfOut = path.resolve("./_qpdf_normalized.pdf");
+    try {
+      execSync(
+        `qpdf --object-streams=disable "${path.resolve(
+          "./_normalized.pdf"
+        )}" "${qpdfOut}"`,
+        { stdio: "inherit" }
+      );
+    } catch (e) {
+      console.warn("qpdf conversion failed, continuing with normalized file");
+    }
+    const pdfToSign = fs.existsSync(qpdfOut)
+      ? fs.readFileSync(qpdfOut)
+      : normalized;
+    const nodeSignpdfModule = require("node-signpdf");
+    const { plainAddPlaceholder } = require("node-signpdf/dist/helpers");
+    const pdfWithPlaceholder = plainAddPlaceholder({
+      pdfBuffer: pdfToSign,
+      signatureLength: 8192,
+    });
+    const signerInstance = nodeSignpdfModule.default || nodeSignpdfModule;
+    const signedPdf = signerInstance.sign.call(
+      signerInstance,
+      pdfWithPlaceholder,
+      p12Buffer,
+      { passphrase: "" }
+    );
+    fs.writeFileSync(dst, signedPdf);
+    console.log("Signed PDF written to", dst);
+
+    const detect = require("./test-detect-signature.js");
+  } catch (e) {
+    console.error(e);
+    process.exit(1);
+  }
+})();

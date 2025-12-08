@@ -26,7 +26,6 @@ export default function DashboardPage() {
   const router = useRouter();
 
   useEffect(() => {
-    // Check authentication
     const token = localStorage.getItem("token");
     const userStr = localStorage.getItem("user");
 

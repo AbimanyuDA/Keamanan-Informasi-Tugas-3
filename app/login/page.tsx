@@ -42,7 +42,6 @@ export default function LoginPage() {
         throw new Error(data.error || "Login failed");
       }
 
-      // Save token to localStorage
       localStorage.setItem("token", data.token);
       localStorage.setItem("user", JSON.stringify(data.user));
 

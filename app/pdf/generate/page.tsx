@@ -75,7 +75,6 @@ export default function GeneratePDFPage() {
         throw new Error(data.error || "Failed to generate PDF");
       }
 
-      // Download the PDF
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");

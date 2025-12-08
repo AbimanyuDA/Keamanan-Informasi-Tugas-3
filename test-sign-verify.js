@@ -4,7 +4,6 @@
 const fs = require("fs");
 const path = require("path");
 
-// Create a simple test PDF
 function createTestPDF() {
   const pdfContent = Buffer.from(`%PDF-1.4
 1 0 obj
@@ -72,29 +71,23 @@ startxref
   return pdfContent;
 }
 
-// Test the verification logic directly
 function testVerification() {
   console.log("🧪 Testing PDF verification logic...\n");
 
   const pdfBuffer = createTestPDF();
   const pdfString = pdfBuffer.toString("binary");
 
-  // Test signature detection logic
   const hasSignatureDict = /\/Type\s*\/Sig/i.test(pdfString);
   const hasContents = /\/Contents\s*\(/i.test(pdfString);
   const hasByteRange = /\/ByteRange/i.test(pdfString);
 
-  // Method 2: Look for /Annots with /Sig (annotation-based signature)
   const hasAnnotSig =
     /\/Annots\s*\[[\s\S]*?\/Subtype\s*\/Widget[\s\S]*?\/Sig/i.test(pdfString);
 
-  // Method 3: Look for signature placeholder or field
   const hasSigField = /\/Fields\s*\[[\s\S]*?\/Type\s*\/Sig/i.test(pdfString);
 
-  // Method 4: Check for incremental update (xref at end - indicates modification/signature)
   const hasIncrementalUpdate = /%%EOF[\s\S]*?startxref/i.test(pdfString);
 
-  // Method 5: Look for /AcroForm which often contains signature fields
   const hasAcroForm = /\/AcroForm/i.test(pdfString);
 
   console.log("hasSignatureDict:", hasSignatureDict);
@@ -105,7 +98,6 @@ function testVerification() {
   console.log("hasIncrementalUpdate:", hasIncrementalUpdate);
   console.log("hasAcroForm:", hasAcroForm);
 
-  // Strong indicators of signature
   const isSignatureValid =
     hasSignatureDict ||
     (hasContents && hasByteRange) ||
@@ -113,7 +105,6 @@ function testVerification() {
     hasSigField ||
     (hasAcroForm && hasContents);
 
-  // Weak indicators
   const hasWeakIndicators = hasContents || hasIncrementalUpdate;
 
   if (isSignatureValid) {
@@ -124,7 +115,6 @@ function testVerification() {
     console.log("❌ Result: No signature found");
   }
 
-  // Test metadata signature detection
   const hasMetadataSig =
     /\/Producer|\/Creator|Keywords.*signed.*digital-signature/i.test(pdfString);
   if (hasMetadataSig) {

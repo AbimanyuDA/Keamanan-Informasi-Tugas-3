@@ -16,7 +16,6 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
 
-    // Validate input
     const validation = registerSchema.safeParse(body);
     if (!validation.success) {
       return NextResponse.json(
@@ -28,7 +27,6 @@ export async function POST(request: NextRequest) {
     const { email, password, name, role, organizationName, position } =
       validation.data;
 
-    // Check if user already exists
     const existingUser = await userDb.findByEmail(email);
     if (existingUser) {
       return NextResponse.json(
@@ -37,7 +35,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate organization name for organization role
     if (role === "organization" && !organizationName) {
       return NextResponse.json(
         { error: "Organization name is required for organization accounts" },
@@ -45,7 +42,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create user
     const user = await userDb.create({
       email,
       password,
@@ -55,7 +51,6 @@ export async function POST(request: NextRequest) {
       position,
     });
 
-    // Generate token
     const token = generateToken(user);
 
     return NextResponse.json(

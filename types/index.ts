@@ -1,4 +1,3 @@
-// User Types
 export type UserRole = "organization" | "consultant";
 
 export interface User {
@@ -20,7 +19,6 @@ export interface UserKeys {
   createdAt: Date;
 }
 
-// Auth Types
 export interface LoginRequest {
   email: string;
   password: string;
@@ -40,7 +38,6 @@ export interface AuthResponse {
   user: User;
 }
 
-// PDF Types
 export interface PDFDocument {
   id: string;
   name: string;
@@ -56,13 +53,15 @@ export interface PDFDocument {
 export interface SignatureInfo {
   valid: boolean;
   signedBy: string;
-  signedAt: Date;
-  certificate: string;
-  issuer: string;
-  subject: string;
-  validFrom: Date;
-  validTo: Date;
-  algorithm: string;
+  signingTime: string;
+  signingReason: string;
+  signatureType: string;
+  certificate?: string;
+  issuer?: string;
+  subject?: string;
+  validFrom?: Date;
+  validTo?: Date;
+  algorithm?: string;
 }
 
 export interface PDFGenerateRequest {
@@ -80,7 +79,6 @@ export interface PDFVerifyRequest {
   pdfBuffer: Buffer;
 }
 
-// Key Generation Types
 export interface KeyPairInfo {
   publicKey: string;
   privateKey: string;

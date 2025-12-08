@@ -10,7 +10,6 @@ const generateKeysSchema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
-    // Get user from token
     const tokenPayload = await getUserFromRequest(request);
     if (!tokenPayload) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -27,23 +26,19 @@ export async function POST(request: NextRequest) {
 
     const { password } = validation.data;
 
-    // Get user details
     const user = await userDb.findById(tokenPayload.userId);
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
-    // Generate key pair and certificate
     const keyPair = await generateKeyPairAndCertificate({
       commonName: user.name,
       organizationName: user.organizationName,
       email: user.email,
     });
 
-    // Encrypt private key
     const privateKeyEncrypted = encryptPrivateKey(keyPair.privateKey, password);
 
-    // Save to database
     await userKeysDb.create({
       userId: user.id,
       publicKey: keyPair.publicKey,
@@ -67,13 +62,11 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    // Get user from token
     const tokenPayload = await getUserFromRequest(request);
     if (!tokenPayload) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Get user keys
     const keys = await userKeysDb.findByUserId(tokenPayload.userId);
     if (!keys) {
       return NextResponse.json(

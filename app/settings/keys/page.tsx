@@ -123,7 +123,6 @@ export default function KeysPage() {
         description: "Your RSA key pair and certificate have been created",
       });
 
-      // Update user in localStorage
       if (user) {
         const updatedUser = { ...user, hasKeys: true };
         localStorage.setItem("user", JSON.stringify(updatedUser));

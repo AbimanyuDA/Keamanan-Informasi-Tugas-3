@@ -89,7 +89,6 @@ export default function SignPDFPage() {
         throw new Error(data.error || "Failed to sign PDF");
       }
 
-      // Download signed PDF
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -105,7 +104,6 @@ export default function SignPDFPage() {
         description: "Your signed PDF has been downloaded",
       });
 
-      // Reset form
       setPdfFile(null);
       setPassword("");
     } catch (error) {

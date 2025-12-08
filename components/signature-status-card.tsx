@@ -93,7 +93,7 @@ export function SignatureStatusCard({
             <div className="flex-1">
               <p className="text-sm font-medium">Signed By</p>
               <p className="text-sm text-muted-foreground">
-                {signatureInfo.signedBy}
+                {signatureInfo.signedBy || "Unknown"}
               </p>
             </div>
           </div>
@@ -103,7 +103,7 @@ export function SignatureStatusCard({
             <div className="flex-1">
               <p className="text-sm font-medium">Signed At</p>
               <p className="text-sm text-muted-foreground">
-                {formatDate(signatureInfo.signedAt)}
+                {new Date(signatureInfo.signingTime).toLocaleString("id-ID")}
               </p>
             </div>
           </div>
@@ -111,55 +111,87 @@ export function SignatureStatusCard({
           <div className="flex items-start">
             <Shield className="h-4 w-4 mr-2 mt-0.5 text-muted-foreground" />
             <div className="flex-1">
-              <p className="text-sm font-medium">Algorithm</p>
+              <p className="text-sm font-medium">Signature Type</p>
               <p className="text-sm text-muted-foreground">
-                {signatureInfo.algorithm}
+                {signatureInfo.signatureType}
               </p>
             </div>
           </div>
+
+          {signatureInfo.signingReason && (
+            <div className="flex items-start">
+              <AlertCircle className="h-4 w-4 mr-2 mt-0.5 text-muted-foreground" />
+              <div className="flex-1">
+                <p className="text-sm font-medium">Reason</p>
+                <p className="text-sm text-muted-foreground">
+                  {signatureInfo.signingReason}
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
-        <div className="border-t pt-4 space-y-2">
-          <h4 className="text-sm font-semibold">Certificate Details</h4>
-          <div className="space-y-1">
-            <div>
-              <p className="text-xs font-medium text-muted-foreground">
-                Subject
-              </p>
-              <p className="text-xs font-mono break-all">
-                {signatureInfo.subject}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs font-medium text-muted-foreground">
-                Issuer
-              </p>
-              <p className="text-xs font-mono break-all">
-                {signatureInfo.issuer}
-              </p>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <p className="text-xs font-medium text-muted-foreground">
-                  Valid From
-                </p>
-                <p className="text-xs">
-                  {new Date(signatureInfo.validFrom).toLocaleDateString(
-                    "id-ID"
-                  )}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs font-medium text-muted-foreground">
-                  Valid To
-                </p>
-                <p className="text-xs">
-                  {new Date(signatureInfo.validTo).toLocaleDateString("id-ID")}
-                </p>
-              </div>
+        {signatureInfo.algorithm && (
+          <div className="border-t pt-4 space-y-2">
+            <h4 className="text-sm font-semibold">Certificate Details</h4>
+            <div className="space-y-1">
+              {signatureInfo.algorithm && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground">
+                    Algorithm
+                  </p>
+                  <p className="text-xs font-mono break-all">
+                    {signatureInfo.algorithm}
+                  </p>
+                </div>
+              )}
+              {signatureInfo.subject && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground">
+                    Subject
+                  </p>
+                  <p className="text-xs font-mono break-all">
+                    {signatureInfo.subject}
+                  </p>
+                </div>
+              )}
+              {signatureInfo.issuer && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground">
+                    Issuer
+                  </p>
+                  <p className="text-xs font-mono break-all">
+                    {signatureInfo.issuer}
+                  </p>
+                </div>
+              )}
+              {signatureInfo.validFrom && signatureInfo.validTo && (
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground">
+                      Valid From
+                    </p>
+                    <p className="text-xs">
+                      {new Date(signatureInfo.validFrom).toLocaleDateString(
+                        "id-ID"
+                      )}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground">
+                      Valid To
+                    </p>
+                    <p className="text-xs">
+                      {new Date(signatureInfo.validTo).toLocaleDateString(
+                        "id-ID"
+                      )}
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
-        </div>
+        )}
       </CardContent>
     </Card>
   );

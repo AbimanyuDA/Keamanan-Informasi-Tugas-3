@@ -73,7 +73,6 @@ export default function RegisterPage() {
         throw new Error(data.error || "Registration failed");
       }
 
-      // Save token to localStorage
       localStorage.setItem("token", data.token);
       localStorage.setItem("user", JSON.stringify(data.user));
 
