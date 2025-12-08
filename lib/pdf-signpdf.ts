@@ -4,6 +4,7 @@ import { PDFDocument } from "pdf-lib";
 let signpdfLoaded = false;
 let signpdf: any = null;
 let plainAddPlaceholder: any = null;
+let SignPdfClass: any = null;
 
 function loadNodeSignpdf() {
   if (signpdfLoaded) return;
@@ -28,12 +29,22 @@ function loadNodeSignpdf() {
       console.log("plainAddPlaceholder not found in node-signpdf");
     }
     
+    try {
+      SignPdfClass = nodeSignpdf.SignPdf || nodeSignpdf.default?.SignPdf || nodeSignpdf.default;
+    } catch (e) {}
+
     signpdfLoaded = true;
     console.log("node-signpdf loaded successfully");
   } catch (e) {
     console.warn("Failed to load node-signpdf:", e);
     signpdfLoaded = true; // Mark as loaded to avoid retrying
   }
+}
+
+export interface SignerInfo {
+  name: string;
+  organization?: string;
+  position?: string;
 }
 
 /**
@@ -96,52 +107,75 @@ export async function signPdfWithNodeSignpdf(
   loadNodeSignpdf();
 
   // If node-signpdf is available and working, try to use it
-  if (signpdf && typeof signpdf === "function") {
+    if ((signpdf && typeof signpdf === "function") || SignPdfClass) {
     try {
       console.log("Attempting to sign with node-signpdf directly...");
       
       let pdfToSign = pdfBuffer;
-      
-      // Try to add placeholder if available
+
+      // Normalize PDF first to remove object streams that break placeholder parsing
+      try {
+        const normalized = await normalizePdfBuffer(pdfBuffer);
+        pdfToSign = normalized;
+      } catch (e) {
+        console.warn("PDF normalization failed, continue with original buffer", e);
+        pdfToSign = pdfBuffer;
+      }
+
+      // Try standard plainAddPlaceholder if available
       if (plainAddPlaceholder && typeof plainAddPlaceholder === "function") {
-        try {
-          console.log("Adding signature placeholder...");
-          const signerName = signerInfo ? `${signerInfo.name}${signerInfo.organization ? ` (${signerInfo.organization})` : ''}` : 'Digital Signature';
-          const reason = signerInfo?.position ? `Signed as ${signerInfo.position}` : 'Document signed digitally';
-          
-          pdfToSign = plainAddPlaceholder({
-            pdfBuffer: pdfBuffer,
-            reason: reason,
-            name: signerName,
-            location: signerInfo?.organization || '',
-            signatureLength: 8192,
-          });
-          console.log("Placeholder added, PDF size:", pdfToSign.length);
-        } catch (err) {
-          console.log("Could not add placeholder, trying normalization...");
           try {
-            const normalized = await normalizePdfBuffer(pdfBuffer);
+            console.log("Adding signature placeholder...");
             const signerName = signerInfo ? `${signerInfo.name}${signerInfo.organization ? ` (${signerInfo.organization})` : ''}` : 'Digital Signature';
             const reason = signerInfo?.position ? `Signed as ${signerInfo.position}` : 'Document signed digitally';
-            
+          
             pdfToSign = plainAddPlaceholder({
-              pdfBuffer: normalized,
+              pdfBuffer: pdfToSign,
               reason: reason,
               name: signerName,
               location: signerInfo?.organization || '',
-              signatureLength: 8192,
+                signatureLength: 12288,
             });
-            console.log("Placeholder added to normalized PDF, size:", pdfToSign.length);
-          } catch (err2) {
-            console.log("Could not add placeholder even after normalization, signing without it");
-            pdfToSign = pdfBuffer;
+            console.log("Placeholder added, PDF size:", pdfToSign.length);
+          } catch (err) {
+            console.log("Could not add placeholder, signing without it");
           }
+        }
+
+      // Check if ByteRange exists after placeholder; if not, retry on original buffer with larger placeholder
+      let pdfTextAfterPlaceholder = pdfToSign.toString('latin1');
+      if (!pdfTextAfterPlaceholder.includes('/ByteRange') && plainAddPlaceholder) {
+        console.warn('ByteRange missing after placeholder; retrying on original buffer');
+        try {
+          pdfToSign = plainAddPlaceholder({
+            pdfBuffer: pdfBuffer,
+            reason: signerInfo?.position ? `Signed as ${signerInfo.position}` : 'Document signed digitally',
+            name: signerInfo ? `${signerInfo.name}${signerInfo.organization ? ` (${signerInfo.organization})` : ''}` : 'Digital Signature',
+            location: signerInfo?.organization || '',
+            signatureLength: 12288,
+          });
+          pdfTextAfterPlaceholder = pdfToSign.toString('latin1');
+          console.log('Retry placeholder; ByteRange present:', pdfTextAfterPlaceholder.includes('/ByteRange'));
+        } catch (err2) {
+          console.warn('Retry placeholder failed:', err2);
         }
       }
       
-      // Sign the PDF
+      // Sign the PDF using SignPdf class if available
+      if (SignPdfClass) {
+        try {
+          const signer = new SignPdfClass();
+          const signedPdf = signer.sign(pdfToSign, p12Buffer);
+          console.log("PDF signed successfully with SignPdf class, size:", signedPdf.length);
+          return signedPdf;
+        } catch (e) {
+          console.warn("SignPdf class signing failed, falling back to function:", e);
+        }
+      }
+
+      // Fallback to function form
       const signedPdf = signpdf(pdfToSign, p12Buffer, { passphrase });
-      console.log("PDF signed successfully with node-signpdf, size:", signedPdf.length);
+      console.log("PDF signed successfully with node-signpdf function, size:", signedPdf.length);
       return signedPdf;
     } catch (err) {
       console.warn("node-signpdf signing failed:", err);
@@ -170,6 +204,7 @@ export async function lockPdfEditing(pdfBuffer: Buffer): Promise<Buffer> {
 /**
  * Fallback: Simple method to add basic signature structure using forge
  * This is used if node-signpdf is not available
+ * Returns the original PDF with signature metadata embedded properly
  */
 export async function signPdfWithFallback(
   pdfBuffer: Buffer,
@@ -179,7 +214,7 @@ export async function signPdfWithFallback(
 ): Promise<Buffer> {
   console.warn("Using fallback signing method (forge-based)");
   
-  // Import forge dynamically
+  // Import required libraries
   let forge: any;
   try {
     forge = require("node-forge");
@@ -188,21 +223,15 @@ export async function signPdfWithFallback(
   }
 
   try {
-    // Read P12 as binary
+    // Parse PKCS#12
     const p12DerBytes = p12Buffer.toString("binary");
-    
-    // Parse PKCS#12 using forge
-    // Create a buffer from the DER bytes
     const p12Der = forge.util.createBuffer(p12DerBytes, "binary");
     const p12Asn1 = forge.asn1.fromDer(p12Der);
     
-    // Decode PKCS#12
     let p12: any;
     try {
-      // Try the standard method
       p12 = forge.pkcs12.pkcs12FromAsn1(p12Asn1, false, passphrase);
     } catch (e) {
-      // Try alternate method name
       try {
         p12 = forge.pkcs12.decrypt(p12Asn1, passphrase);
       } catch (e2) {
@@ -210,42 +239,157 @@ export async function signPdfWithFallback(
       }
     }
 
-    // Extract key and cert from PKCS#12
+    // Extract key and cert
     let privateKey: any = null;
     let certificate: any = null;
 
-    try {
-      // Try to get private key
-      const keyBags = p12.getBags({ bagType: forge.pki.oids.pkcs8ShroudedKeyBag });
-      if (keyBags[forge.pki.oids.pkcs8ShroudedKeyBag]) {
-        privateKey = keyBags[forge.pki.oids.pkcs8ShroudedKeyBag][0].key;
-      }
+    const keyBags = p12.getBags({ bagType: forge.pki.oids.pkcs8ShroudedKeyBag });
+    if (keyBags[forge.pki.oids.pkcs8ShroudedKeyBag]) {
+      privateKey = keyBags[forge.pki.oids.pkcs8ShroudedKeyBag][0].key;
+    }
 
-      // Try to get certificate
-      const certBags = p12.getBags({ bagType: forge.pki.oids.certBag });
-      if (certBags[forge.pki.oids.certBag]) {
-        certificate = certBags[forge.pki.oids.certBag][0].cert;
-      }
-    } catch (e) {
-      console.error("Error extracting key/cert from P12:", e);
+    const certBags = p12.getBags({ bagType: forge.pki.oids.certBag });
+    if (certBags[forge.pki.oids.certBag]) {
+      certificate = certBags[forge.pki.oids.certBag][0].cert;
     }
 
     if (!privateKey || !certificate) {
       throw new Error("Could not extract private key or certificate from P12");
     }
 
-    // Create PKCS#7 signature
-    const pdfBytes = pdfBuffer;
-    const pdfBinary = pdfBytes.toString("binary");
+    // Prepare PDF for signing - add signature placeholder
+    let pdfToSign = pdfBuffer;
     
-    // Create digest
-    const md = forge.md.sha256.create();
-    md.update(pdfBinary, "binary");
+    // Normalize PDF first to avoid object streams that break placeholder parsing
+    try {
+      const normalized = await normalizePdfBuffer(pdfBuffer);
+      pdfToSign = normalized;
+    } catch (e) {
+      console.warn("PDF normalization failed, continue with original buffer", e);
+      pdfToSign = pdfBuffer;
+    }
+    
+    // Try to add placeholder if plainAddPlaceholder is available
+    if (plainAddPlaceholder) {
+      try {
+        pdfToSign = plainAddPlaceholder({
+          pdfBuffer: pdfToSign,
+          reason: signerInfo?.position ? `Signed as ${signerInfo.position}` : 'Document signed digitally',
+          contactInfo: signerInfo?.organization || '',
+          name: signerInfo?.name || 'Digital Signature',
+          location: signerInfo?.organization || '',
+          signatureLength: 8192,
+        });
+        console.log("Added signature placeholder");
+      } catch (e) {
+        console.warn("Could not add placeholder:", e);
+      }
+    }
 
-    // Create signed data
+    // Check if ByteRange exists after placeholder; if not, try once more on original buffer
+    let pdfTextAfterPlaceholder = pdfToSign.toString('latin1');
+    if (!pdfTextAfterPlaceholder.includes('/ByteRange')) {
+      console.warn('ByteRange still missing after placeholder, retrying on original buffer');
+      if (plainAddPlaceholder) {
+        try {
+          pdfToSign = plainAddPlaceholder({
+            pdfBuffer: pdfBuffer,
+            reason: signerInfo?.position ? `Signed as ${signerInfo.position}` : 'Document signed digitally',
+            contactInfo: signerInfo?.organization || '',
+            name: signerInfo?.name || 'Digital Signature',
+            location: signerInfo?.organization || '',
+            signatureLength: 12288,
+          });
+          pdfTextAfterPlaceholder = pdfToSign.toString('latin1');
+          console.log('Retry placeholder; ByteRange present:', pdfTextAfterPlaceholder.includes('/ByteRange'));
+        } catch (e2) {
+          console.warn('Retry placeholder failed:', e2);
+        }
+      }
+    }
+
+    // Locate /Contents placeholder and /ByteRange placeholders (with asterisks) and compute actual ranges ourselves
+    const pdfText = pdfToSign.toString('latin1'); // latin1 keeps 1:1 byte mapping
+
+    // Find Contents placeholder
+    const contentsTag = '/Contents <';
+    const contentsStart = pdfText.indexOf(contentsTag);
+    if (contentsStart === -1) {
+      throw new Error('Could not find /Contents placeholder');
+    }
+    const placeholderStart = contentsStart + contentsTag.length;
+    const placeholderEnd = pdfText.indexOf('>', placeholderStart);
+    if (placeholderEnd === -1) {
+      throw new Error('Could not find end of /Contents placeholder');
+    }
+
+    const initialPlaceholderLength = placeholderEnd - placeholderStart; // hex chars length
+
+    // Find ByteRange placeholder (may include asterisks, possibly with newlines)
+    const byteRangeRegex = /\/ByteRange\s*\[\s*([\d\*]+)\s+([\d\*]+)\s+([\d\*]+)\s+([\d\*]+)\s*\]/s;
+    const brMatch = byteRangeRegex.exec(pdfText);
+    if (!brMatch) {
+      console.error('ByteRange placeholder not found in PDF');
+      throw new Error('Could not parse ByteRange');
+    }
+
+    const parts = brMatch.slice(1);
+    const hasAsterisk = parts.some((p) => p.includes('*'));
+
+    // If ByteRange already concrete numbers, parse and reuse
+    if (!hasAsterisk) {
+      const byteRangeNums = parts.map((p) => parseInt(p, 10));
+      const signedData = Buffer.concat([
+        pdfToSign.slice(byteRangeNums[0], byteRangeNums[0] + byteRangeNums[1]),
+        pdfToSign.slice(byteRangeNums[2], byteRangeNums[2] + byteRangeNums[3])
+      ]);
+      // proceed later using signedData
+      // replace computed path below will recompute placeholder lengths from positions
+    }
+
+    // Compute actual byte ranges based on placeholder positions
+    const byteRange = [
+      0,
+      placeholderStart,
+      placeholderStart + initialPlaceholderLength,
+      pdfToSign.length - (placeholderStart + initialPlaceholderLength),
+    ];
+
+    // Determine widths: if asterisks present, widths come from lengths; else from original numbers' length
+    const widths = parts.map((p) => p.length);
+    const formatNumber = (num: number, width: number) => num.toString().padStart(width, ' ');
+    const byteRangeReplacement = `/ByteRange [${formatNumber(byteRange[0], widths[0])} ${formatNumber(byteRange[1], widths[1])} ${formatNumber(byteRange[2], widths[2])} ${formatNumber(byteRange[3], widths[3])}]`;
+
+    // Replace ByteRange placeholder without changing overall PDF byte alignment (same length segments)
+    const byteRangeStart = brMatch.index;
+    const byteRangeEnd = byteRangeStart + brMatch[0].length;
+    const beforeBR = pdfToSign.slice(0, byteRangeStart);
+    const afterBR = pdfToSign.slice(byteRangeEnd);
+    pdfToSign = Buffer.concat([beforeBR, Buffer.from(byteRangeReplacement, 'latin1'), afterBR]);
+
+    // Rebuild pdfText after ByteRange replacement (length remains same because we padded numbers)
+    const updatedPdfText = pdfToSign.toString('latin1');
+
+    // Recompute placeholder positions (should be unchanged length-wise)
+    const updatedContentsStart = updatedPdfText.indexOf(contentsTag);
+    const updatedPlaceholderStart = updatedContentsStart + contentsTag.length;
+    const updatedPlaceholderEnd = updatedPdfText.indexOf('>', updatedPlaceholderStart);
+
+    const updatedPlaceholderLength = updatedPlaceholderEnd - updatedPlaceholderStart;
+
+    const signedData = Buffer.concat([
+      pdfToSign.slice(0, updatedPlaceholderStart),
+      pdfToSign.slice(updatedPlaceholderEnd)
+    ]);
+
+    // Create PKCS#7 signature
     const p7 = forge.pkcs7.createSignedData();
-    p7.content = forge.util.createBuffer(pdfBinary, "binary");
+    p7.content = forge.util.createBuffer(signedData.toString('binary'));
+    
+    // Add certificate
     p7.addCertificate(certificate);
+    
+    // Add signer
     p7.addSigner({
       key: privateKey,
       certificate: certificate,
@@ -253,43 +397,48 @@ export async function signPdfWithFallback(
       authenticatedAttributes: [
         {
           type: forge.pki.oids.contentType,
-          value: forge.pki.oids.data,
+          value: forge.pki.oids.data
         },
         {
-          type: forge.pki.oids.messageDigest,
+          type: forge.pki.oids.messageDigest
         },
         {
           type: forge.pki.oids.signingTime,
-          value: new Date(),
-        },
-      ],
+          value: new Date()
+        }
+      ]
     });
 
+    // Sign
     p7.sign({ detached: true });
 
-    // Get DER signature
+    // Get signature in DER format
     const derSignature = forge.asn1.toDer(p7.toAsn1()).getBytes();
-    const signatureHex = forge.util.binary.hex.encode(derSignature);
+    const signature = Buffer.from(derSignature, 'binary');
     
-    // Create timestamp
-    const now = new Date();
-    const timestamp = `D:${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}Z`;
+    // Convert to hex
+    const signatureHex = signature.toString('hex');
+
+    // Pad signature to fit placeholder
+    const placeholderLength = updatedPlaceholderLength;
+    const paddedSignatureHex = signatureHex.padEnd(placeholderLength, '0');
     
-    // Build signer name with organization
-    const signerName = signerInfo ? `${signerInfo.name}${signerInfo.organization ? ` (${signerInfo.organization})` : ''}` : 'Digital Signature';
-    const reason = signerInfo?.position ? `Signed as ${signerInfo.position}` : 'Document signed digitally';
-    const location = signerInfo?.organization || '';
-    
-    // Append signature object to PDF with signer information
-    const signatureObj = `\n1 0 obj\n<< /Type /Sig /Filter /adbe.pkcs7.detached /Name (${signerName}) /Reason (${reason}) /Location (${location}) /M (${timestamp}) /Contents <${signatureHex}> >>\nendobj\n`;
-    
+    if (paddedSignatureHex.length > placeholderLength) {
+      throw new Error(`Signature too large: ${paddedSignatureHex.length} > ${placeholderLength}`);
+    }
+
+    // Replace placeholder with actual signature using byte slices to preserve lengths
+    const beforeSig = pdfToSign.slice(0, updatedPlaceholderStart);
+    const afterSig = pdfToSign.slice(updatedPlaceholderEnd);
     const signedPdf = Buffer.concat([
-      pdfBuffer,
-      Buffer.from(signatureObj, "utf8"),
+      beforeSig,
+      Buffer.from(paddedSignatureHex, 'latin1'),
+      afterSig,
     ]);
 
-    console.log("Fallback signing completed, size:", signedPdf.length);
+    console.log("Fallback PKCS#7 signing completed, size:", signedPdf.length);
     return signedPdf;
+    
   } catch (err) {
     console.error("Fallback signing error:", err);
     throw new Error(`Fallback signing failed: ${(err as Error).message}`);

@@ -130,6 +130,7 @@ export async function POST(request: NextRequest) {
           p12Passphrase,
           signerInfo
         );
+        
         const signedPdfUint8 = new Uint8Array(signedPdf);
         return new NextResponse(signedPdfUint8, {
           headers: {
