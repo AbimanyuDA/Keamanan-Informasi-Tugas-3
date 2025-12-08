@@ -95,6 +95,11 @@ export function SignatureStatusCard({
               <p className="text-sm text-muted-foreground">
                 {signatureInfo.signedBy || "Unknown"}
               </p>
+              {signatureInfo.organization && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Organization: {signatureInfo.organization}
+                </p>
+              )}
             </div>
           </div>
 

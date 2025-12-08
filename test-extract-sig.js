@@ -17,11 +17,18 @@ function extractSignatureInfo(pdfBuffer) {
     const reasonMatch = pdfString.match(/\/Reason\s*\((.*?)\)/i);
     const signingReason = reasonMatch ? reasonMatch[1].replace(/\\/g, '') : "Document signed digitally";
 
-    // Extract signer info - look for /Name or /SubFilter
+    // Extract signer name - look for /Name
     let signedBy = "Unknown";
     const nameMatch = pdfString.match(/\/Name\s*\((.*?)\)/i);
     if (nameMatch) {
       signedBy = nameMatch[1].replace(/\\/g, '');
+    }
+
+    // Extract location (organization) - look for /Location
+    let organization = "";
+    const locationMatch = pdfString.match(/\/Location\s*\((.*?)\)/i);
+    if (locationMatch) {
+      organization = locationMatch[1].replace(/\\/g, '');
     }
 
     // Extract contents size to estimate signature strength
@@ -38,6 +45,7 @@ function extractSignatureInfo(pdfBuffer) {
       signingTime,
       signingReason,
       signatureType,
+      organization,
       valid: true,
     };
   } catch (error) {
@@ -46,6 +54,7 @@ function extractSignatureInfo(pdfBuffer) {
       signingTime: new Date().toISOString(),
       signingReason: "Unable to extract signature details",
       signatureType: "Unknown",
+      organization: "",
       valid: false,
     };
   }

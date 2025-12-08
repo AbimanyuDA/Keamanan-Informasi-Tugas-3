@@ -3,9 +3,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/auth";
 import { userKeysDb } from "@/lib/db";
 import { decryptPrivateKey } from "@/lib/crypto";
-import { signPdfWithNodeSignpdf, signPdfWithFallback } from "@/lib/pdf-signpdf";
+import { signPdfWithNodeSignpdf, signPdfWithFallback, SignerInfo } from "@/lib/pdf-signpdf";
+import { addVisualSignature, lockPdfForEditing } from "@/lib/pdf-visual-signature";
 import forge from "node-forge";
 import { z } from "zod";
+import User from "@/models/User";
 
 const signPDFSchema = z.object({
   password: z.string().min(8),
@@ -54,6 +56,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Fetch user data for signer information
+    const user = await User.findById(tokenPayload.userId).lean();
+    const signerInfo: SignerInfo = {
+      name: user?.name || "Unknown",
+      organization: user?.organizationName,
+      position: user?.position,
+    };
+
     let privateKey: string;
     try {
       privateKey = decryptPrivateKey(keys.privateKeyEncrypted, password);
@@ -89,15 +99,36 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Step 1: Add visual signature to PDF
+    console.log("Adding visual signature to PDF...");
+    console.log("Signer info:", signerInfo);
+    let pdfWithVisual: Buffer;
+    try {
+      pdfWithVisual = await addVisualSignature(pdfBuffer, {
+        name: signerInfo.name,
+        organization: signerInfo.organization,
+        position: signerInfo.position,
+        timestamp: new Date(),
+        reason: signerInfo.position ? `Signed as ${signerInfo.position}` : "Document signed digitally",
+      });
+      console.log("✓ Visual signature added successfully! Size:", pdfWithVisual.length, "bytes");
+    } catch (err) {
+      console.error("✗ Failed to add visual signature:", err);
+      console.error("Error details:", err instanceof Error ? err.message : String(err));
+      pdfWithVisual = pdfBuffer;
+      console.log("Continuing with original PDF (no visual signature)");
+    }
+
     // If P12 file provided, use it directly
     if (p12File && p12Passphrase) {
       console.log("Signing with provided P12 file...");
       try {
         const p12Buffer = Buffer.from(await p12File.arrayBuffer());
         const signedPdf = await signPdfWithNodeSignpdf(
-          pdfBuffer,
+          pdfWithVisual,
           p12Buffer,
-          p12Passphrase
+          p12Passphrase,
+          signerInfo
         );
         const signedPdfUint8 = new Uint8Array(signedPdf);
         return new NextResponse(signedPdfUint8, {
@@ -181,12 +212,12 @@ export async function POST(request: NextRequest) {
       // Sign PDF with PKCS#12
       let signedPdf;
       try {
-        signedPdf = await signPdfWithNodeSignpdf(pdfBuffer, p12Buffer, "");
+        signedPdf = await signPdfWithNodeSignpdf(pdfWithVisual, p12Buffer, "", signerInfo);
         console.log("PDF signed successfully with node-signpdf, size:", signedPdf.length);
       } catch (e) {
         console.warn("node-signpdf failed, trying fallback method...");
         try {
-          signedPdf = await signPdfWithFallback(pdfBuffer, p12Buffer, "");
+          signedPdf = await signPdfWithFallback(pdfWithVisual, p12Buffer, "", signerInfo);
           console.log("PDF signed with fallback method, size:", signedPdf.length);
         } catch (fallbackErr) {
           throw new Error(

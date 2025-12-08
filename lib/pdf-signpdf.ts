@@ -71,18 +71,26 @@ async function normalizePdfBuffer(pdfBuffer: Buffer): Promise<Buffer> {
   }
 }
 
+export interface SignerInfo {
+  name: string;
+  organization?: string;
+  position?: string;
+}
+
 /**
  * Sign a PDF using node-signpdf so the signature is valid in Adobe Reader and locked from editing.
  * This creates a proper PKCS#7 detached signature that is cryptographically valid.
  * @param pdfBuffer Buffer of the unsigned PDF
  * @param p12Buffer Buffer of the PKCS#12 (PFX) file containing private key and certificate
  * @param passphrase Passphrase for the P12 file
+ * @param signerInfo Optional signer information (name, organization, position)
  * @returns Buffer of the signed PDF
  */
 export async function signPdfWithNodeSignpdf(
   pdfBuffer: Buffer,
   p12Buffer: Buffer,
-  passphrase: string
+  passphrase: string,
+  signerInfo?: SignerInfo
 ): Promise<Buffer> {
   // Load node-signpdf module
   loadNodeSignpdf();
@@ -98,9 +106,14 @@ export async function signPdfWithNodeSignpdf(
       if (plainAddPlaceholder && typeof plainAddPlaceholder === "function") {
         try {
           console.log("Adding signature placeholder...");
+          const signerName = signerInfo ? `${signerInfo.name}${signerInfo.organization ? ` (${signerInfo.organization})` : ''}` : 'Digital Signature';
+          const reason = signerInfo?.position ? `Signed as ${signerInfo.position}` : 'Document signed digitally';
+          
           pdfToSign = plainAddPlaceholder({
             pdfBuffer: pdfBuffer,
-            reason: "Document signed digitally",
+            reason: reason,
+            name: signerName,
+            location: signerInfo?.organization || '',
             signatureLength: 8192,
           });
           console.log("Placeholder added, PDF size:", pdfToSign.length);
@@ -108,9 +121,14 @@ export async function signPdfWithNodeSignpdf(
           console.log("Could not add placeholder, trying normalization...");
           try {
             const normalized = await normalizePdfBuffer(pdfBuffer);
+            const signerName = signerInfo ? `${signerInfo.name}${signerInfo.organization ? ` (${signerInfo.organization})` : ''}` : 'Digital Signature';
+            const reason = signerInfo?.position ? `Signed as ${signerInfo.position}` : 'Document signed digitally';
+            
             pdfToSign = plainAddPlaceholder({
               pdfBuffer: normalized,
-              reason: "Document signed digitally",
+              reason: reason,
+              name: signerName,
+              location: signerInfo?.organization || '',
               signatureLength: 8192,
             });
             console.log("Placeholder added to normalized PDF, size:", pdfToSign.length);
@@ -128,11 +146,11 @@ export async function signPdfWithNodeSignpdf(
     } catch (err) {
       console.warn("node-signpdf signing failed:", err);
       console.log("Falling back to forge-based signing...");
-      return signPdfWithFallback(pdfBuffer, p12Buffer, passphrase);
+      return signPdfWithFallback(pdfBuffer, p12Buffer, passphrase, signerInfo);
     }
   } else {
     console.log("node-signpdf not available, using fallback signing...");
-    return signPdfWithFallback(pdfBuffer, p12Buffer, passphrase);
+    return signPdfWithFallback(pdfBuffer, p12Buffer, passphrase, signerInfo);
   }
 }
 
@@ -156,7 +174,8 @@ export async function lockPdfEditing(pdfBuffer: Buffer): Promise<Buffer> {
 export async function signPdfWithFallback(
   pdfBuffer: Buffer,
   p12Buffer: Buffer,
-  passphrase: string
+  passphrase: string,
+  signerInfo?: SignerInfo
 ): Promise<Buffer> {
   console.warn("Using fallback signing method (forge-based)");
   
@@ -256,8 +275,13 @@ export async function signPdfWithFallback(
     const now = new Date();
     const timestamp = `D:${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}Z`;
     
-    // Append signature object to PDF
-    const signatureObj = `\n1 0 obj\n<< /Type /Sig /Filter /adbe.pkcs7.detached /Name (Digital Signature) /Reason (Document signed digitally) /M (${timestamp}) /Contents <${signatureHex}> >>\nendobj\n`;
+    // Build signer name with organization
+    const signerName = signerInfo ? `${signerInfo.name}${signerInfo.organization ? ` (${signerInfo.organization})` : ''}` : 'Digital Signature';
+    const reason = signerInfo?.position ? `Signed as ${signerInfo.position}` : 'Document signed digitally';
+    const location = signerInfo?.organization || '';
+    
+    // Append signature object to PDF with signer information
+    const signatureObj = `\n1 0 obj\n<< /Type /Sig /Filter /adbe.pkcs7.detached /Name (${signerName}) /Reason (${reason}) /Location (${location}) /M (${timestamp}) /Contents <${signatureHex}> >>\nendobj\n`;
     
     const signedPdf = Buffer.concat([
       pdfBuffer,

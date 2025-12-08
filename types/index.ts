@@ -56,6 +56,7 @@ export interface SignatureInfo {
   signingTime: string;
   signingReason: string;
   signatureType: string;
+  organization?: string;
   certificate?: string;
   issuer?: string;
   subject?: string;

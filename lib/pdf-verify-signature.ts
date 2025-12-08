@@ -195,6 +195,13 @@ export function extractSignatureInfo(pdfBuffer: Buffer) {
       signedBy = nameMatch[1].replace(/\\/g, '');
     }
 
+    // Extract location (organization) - look for /Location
+    let organization = "";
+    const locationMatch = pdfString.match(/\/Location\s*\((.*?)\)/i);
+    if (locationMatch) {
+      organization = locationMatch[1].replace(/\\/g, '');
+    }
+
     // Extract contents size to estimate signature strength
     const contentsMatch = pdfString.match(/\/Contents\s*<([0-9A-Fa-f\s]+)>/i);
     const contentsSize = contentsMatch ? contentsMatch[1].length / 2 : 0;
@@ -209,6 +216,7 @@ export function extractSignatureInfo(pdfBuffer: Buffer) {
       signingTime,
       signingReason,
       signatureType,
+      organization,
       valid: true,
     };
   } catch (error) {
@@ -217,6 +225,7 @@ export function extractSignatureInfo(pdfBuffer: Buffer) {
       signingTime: new Date().toISOString(),
       signingReason: "Unable to extract signature details",
       signatureType: "Unknown",
+      organization: "",
       valid: false,
     };
   }
